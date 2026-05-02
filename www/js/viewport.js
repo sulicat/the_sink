@@ -2,8 +2,8 @@
 
 class Viewport {
     constructor(canvas) {
-        this.canvas = canvas;
-        this.objects = {};          // id -> THREE.Mesh
+        this.canvas    = canvas;
+        this.objects   = {};   // id -> THREE.Object3D (Mesh or Group)
         this.selectedId = null;
         this._clickCallback = null;
 
@@ -12,27 +12,24 @@ class Viewport {
         this._initCamera();
         this._initLights();
         this._initControls();
-
         this.animate();
     }
 
-    // -------------------------------------------------------------------------
-    // Init helpers
-    // -------------------------------------------------------------------------
+    // ---- Init ---------------------------------------------------------------
 
     _initRenderer() {
         this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
         this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.outputEncoding = THREE.sRGBEncoding;  // correct colour for GLTF
         this._updateSize();
     }
 
     _initScene() {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x1a1a1a);
-        this.scene.fog = new THREE.Fog(0x1a1a1a, 30, 80);
-
+        // No fog — it clips skyboxes
         const grid = new THREE.GridHelper(20, 20, 0x333344, 0x222233);
         grid.name = '__grid__';
         this.scene.add(grid);
@@ -41,57 +38,44 @@ class Viewport {
     _initCamera() {
         const w = this.canvas.clientWidth  || 800;
         const h = this.canvas.clientHeight || 600;
-        this.camera = new THREE.PerspectiveCamera(55, w / h, 0.01, 200);
+        this.camera = new THREE.PerspectiveCamera(55, w / h, 0.01, 1000);
         this.camera.position.set(6, 5, 8);
-
-        // Orbit state
         this._target    = new THREE.Vector3(0, 0, 0);
         this._spherical = new THREE.Spherical();
-        this._spherical.setFromVector3(
-            this.camera.position.clone().sub(this._target)
-        );
+        this._spherical.setFromVector3(this.camera.position.clone().sub(this._target));
         this.camera.lookAt(this._target);
     }
 
     _initLights() {
-        const ambient = new THREE.AmbientLight(0xffffff, 0.45);
-        this.scene.add(ambient);
-
+        this.scene.add(new THREE.AmbientLight(0xffffff, 0.6));
         const sun = new THREE.DirectionalLight(0xffffff, 0.9);
         sun.position.set(8, 12, 6);
         sun.castShadow = true;
         sun.shadow.mapSize.width  = 1024;
         sun.shadow.mapSize.height = 1024;
         this.scene.add(sun);
-
         const fill = new THREE.DirectionalLight(0x8899ff, 0.25);
         fill.position.set(-6, 4, -4);
         this.scene.add(fill);
     }
 
     _initControls() {
-        this._mouse         = { x: 0, y: 0 };
-        this._middleDown    = false;
-        this._shiftDown     = false;
-        this._lastMouse     = { x: 0, y: 0 };
-
+        this._middleDown = false;
+        this._shiftDown  = false;
+        this._lastMouse  = { x: 0, y: 0 };
         const c = this.canvas;
-
-        c.addEventListener('mousedown',  (e) => this._onMouseDown(e));
-        c.addEventListener('mouseup',    (e) => this._onMouseUp(e));
-        c.addEventListener('mousemove',  (e) => this._onMouseMove(e));
-        c.addEventListener('wheel',      (e) => this._onWheel(e), { passive: false });
-        c.addEventListener('contextmenu',(e) => e.preventDefault());
-        c.addEventListener('click',      (e) => this._onCanvasClick(e));
-
-        window.addEventListener('keydown', (e) => this._onKeyDown(e));
-        window.addEventListener('keyup',   (e) => { if (e.key === 'Shift') this._shiftDown = false; });
+        c.addEventListener('mousedown',   e => this._onMouseDown(e));
+        c.addEventListener('mouseup',     e => this._onMouseUp(e));
+        c.addEventListener('mousemove',   e => this._onMouseMove(e));
+        c.addEventListener('wheel',       e => this._onWheel(e), { passive: false });
+        c.addEventListener('contextmenu', e => e.preventDefault());
+        c.addEventListener('click',       e => this._onCanvasClick(e));
+        window.addEventListener('keydown', e => this._onKeyDown(e));
+        window.addEventListener('keyup',   e => { if (e.key === 'Shift') this._shiftDown = false; });
         window.addEventListener('resize',  () => this.resize());
     }
 
-    // -------------------------------------------------------------------------
-    // Mouse / keyboard control
-    // -------------------------------------------------------------------------
+    // ---- Mouse / keyboard ---------------------------------------------------
 
     _onMouseDown(e) {
         if (e.button === 1) {
@@ -99,250 +83,270 @@ class Viewport {
             this._middleDown = true;
             this._lastMouse  = { x: e.clientX, y: e.clientY };
         }
-        if (e.key === 'Shift' || e.shiftKey) this._shiftDown = true;
+        if (e.shiftKey) this._shiftDown = true;
     }
-
-    _onMouseUp(e) {
-        if (e.button === 1) this._middleDown = false;
-    }
-
+    _onMouseUp(e)   { if (e.button === 1) this._middleDown = false; }
     _onMouseMove(e) {
         this._shiftDown = e.shiftKey;
-
         if (!this._middleDown) return;
-
         const dx = e.clientX - this._lastMouse.x;
         const dy = e.clientY - this._lastMouse.y;
         this._lastMouse = { x: e.clientX, y: e.clientY };
-
-        if (this._shiftDown) {
-            this._pan(dx, dy);
-        } else {
-            this._orbit(dx, dy);
-        }
+        this._shiftDown ? this._pan(dx, dy) : this._orbit(dx, dy);
     }
 
     _orbit(dx, dy) {
-        const speed = 0.005;
-        this._spherical.theta -= dx * speed;
-        this._spherical.phi   -= dy * speed;
-        // Clamp vertical
-        this._spherical.phi = Math.max(0.05, Math.min(Math.PI - 0.05, this._spherical.phi));
+        this._spherical.theta -= dx * 0.005;
+        this._spherical.phi   -= dy * 0.005;
+        this._spherical.phi    = Math.max(0.05, Math.min(Math.PI - 0.05, this._spherical.phi));
         this._updateCameraFromSpherical();
     }
-
     _pan(dx, dy) {
         const speed = 0.01 * (this._spherical.radius * 0.15);
-
         const right = new THREE.Vector3();
-        const up    = new THREE.Vector3();
-        this.camera.getWorldDirection(right);   // actually fwd — reuse
+        this.camera.getWorldDirection(right);
         right.crossVectors(right, this.camera.up).normalize();
-        up.copy(this.camera.up);
-
         this._target.addScaledVector(right, -dx * speed);
-        this._target.addScaledVector(up,     dy * speed);
+        this._target.addScaledVector(this.camera.up, dy * speed);
         this._updateCameraFromSpherical();
     }
-
     _onWheel(e) {
         e.preventDefault();
-        const factor = e.deltaY > 0 ? 1.12 : 0.89;
-        this._spherical.radius = Math.max(0.5, Math.min(100, this._spherical.radius * factor));
+        const f = e.deltaY > 0 ? 1.12 : 0.89;
+        this._spherical.radius = Math.max(0.5, Math.min(500, this._spherical.radius * f));
         this._updateCameraFromSpherical();
     }
-
     _updateCameraFromSpherical() {
-        const pos = new THREE.Vector3();
-        pos.setFromSpherical(this._spherical);
-        pos.add(this._target);
+        const pos = new THREE.Vector3().setFromSpherical(this._spherical).add(this._target);
         this.camera.position.copy(pos);
         this.camera.lookAt(this._target);
     }
-
     _onKeyDown(e) {
-        if (e.key === 'Shift') { this._shiftDown = true; return; }
-
-        // Blender numpad preset views
-        switch (e.key) {
-            case '1': this._setView(0,  1,  8);  break;  // front
-            case '3': this._setView(8,  1,  0);  break;  // right side
-            case '7': this._setView(0,  8,  0.01); break; // top
-            case '0': this._setView(6,  5,  8);  break;  // perspective reset
-        }
+        if (e.key === 'Shift') this._shiftDown = true;
     }
 
-    _setView(x, y, z) {
-        this._target.set(0, 0, 0);
-        const dir = new THREE.Vector3(x, y, z);
-        this._spherical.setFromVector3(dir);
-        this._updateCameraFromSpherical();
-    }
-
-    // -------------------------------------------------------------------------
-    // Click picking
-    // -------------------------------------------------------------------------
+    // ---- Click picking ------------------------------------------------------
 
     _onCanvasClick(e) {
-        // Ignore clicks that moved the camera (middle button drag)
         if (!this._clickCallback) return;
-
-        const rect   = this.canvas.getBoundingClientRect();
-        const ndcX   = ((e.clientX - rect.left)  / rect.width)  * 2 - 1;
-        const ndcY   = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
+        const rect = this.canvas.getBoundingClientRect();
+        const ndcX =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
+        const ndcY = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera({ x: ndcX, y: ndcY }, this.camera);
 
-        const meshes = Object.values(this.objects);
-        const hits   = raycaster.intersectObjects(meshes, false);
+        // Collect all pickable meshes and remember which root object they belong to
+        const meshes  = [];
+        const meshMap = new Map(); // mesh -> rootId
+        Object.entries(this.objects).forEach(([id, obj]) => {
+            obj.traverse(child => {
+                if (child.isMesh) { meshes.push(child); meshMap.set(child, id); }
+            });
+        });
+
+        const hits = raycaster.intersectObjects(meshes, false);
         if (hits.length > 0) {
-            const mesh = hits[0].object;
-            const id   = Object.keys(this.objects).find(k => this.objects[k] === mesh);
+            const id = meshMap.get(hits[0].object);
             if (id) this._clickCallback(id);
         }
     }
 
-    onObjectClick(callback) {
-        this._clickCallback = callback;
-    }
+    onObjectClick(cb) { this._clickCallback = cb; }
 
-    // -------------------------------------------------------------------------
-    // Scene loading
-    // -------------------------------------------------------------------------
+    // ---- Scene loading ------------------------------------------------------
 
     loadScene(sceneJson) {
-        // Remove old objects (keep lights and grid)
-        Object.values(this.objects).forEach(mesh => {
-            this.scene.remove(mesh);
-            mesh.geometry.dispose();
-            mesh.material.dispose();
+        // Dispose and remove existing objects
+        Object.values(this.objects).forEach(obj => {
+            this.scene.remove(obj);
+            obj.traverse(child => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    const mats = Array.isArray(child.material) ? child.material : [child.material];
+                    mats.forEach(m => {
+                        Object.values(m).forEach(v => { if (v && v.isTexture) v.dispose(); });
+                        m.dispose();
+                    });
+                }
+            });
         });
-        this.objects   = {};
+        this.objects    = {};
         this.selectedId = null;
 
+        // Grid — hide when scene has its own ground plane / skybox
+        const grid = this.scene.getObjectByName('__grid__');
+        if (grid) grid.visible = !sceneJson.skybox;
+
+        // Skybox
+        if (sceneJson.skybox) {
+            this._loadSkybox(sceneJson.skybox);
+        } else {
+            this.scene.background = new THREE.Color(0x1a1a1a);
+        }
+
+        // Objects
         (sceneJson.objects || []).forEach(obj => {
-            const mesh = this._buildMesh(obj);
-            if (mesh) {
-                mesh.userData.sceneId = obj.id;
-                mesh.receiveShadow = true;
-                mesh.castShadow    = true;
-                this.scene.add(mesh);
-                this.objects[obj.id] = mesh;
+            if (obj.type === 'gltf') {
+                this._loadGLTF(obj);
+            } else {
+                const mesh = this._buildMesh(obj);
+                if (mesh) {
+                    mesh.receiveShadow = true;
+                    mesh.castShadow    = true;
+                    this.scene.add(mesh);
+                    this.objects[obj.id] = mesh;
+                }
             }
+        });
+    }
+
+    _loadSkybox(url) {
+        new THREE.TextureLoader().load(url, texture => {
+            texture.mapping = THREE.EquirectangularReflectionMapping;
+            texture.encoding = THREE.sRGBEncoding;
+            this.scene.background = texture;
+        });
+    }
+
+    _loadGLTF(obj) {
+        if (typeof THREE.GLTFLoader === 'undefined') {
+            console.warn('GLTFLoader not available');
+            return;
+        }
+        const loader = new THREE.GLTFLoader();
+        loader.load(obj.url, gltf => {
+            const model = gltf.scene;
+            const p = obj.position || [0, 0, 0];
+            const r = obj.rotation || [0, 0, 0];
+            const s = obj.scale    || [1, 1, 1];
+
+            model.traverse(child => {
+                if (child.isMesh) {
+                    child.castShadow    = true;
+                    child.receiveShadow = true;
+                }
+            });
+
+            // Apply scale first so the bounding box is in world units
+            model.scale.set(s[0], s[1], s[2]);
+
+            // Find the bounding box center in the model's parent space
+            const box    = new THREE.Box3().setFromObject(model);
+            const center = box.getCenter(new THREE.Vector3());
+
+            // Shift the model so its bbox center sits at the pivot's origin.
+            // This makes all rotation/scale bindings act on the visual centre.
+            model.position.sub(center);
+
+            // Place the pivot so the model appears at exactly the JSON position.
+            // (pivot world position = intended position + the centre offset we removed)
+            const pivot = new THREE.Group();
+            pivot.position.set(p[0] + center.x, p[1] + center.y, p[2] + center.z);
+            pivot.rotation.set(
+                THREE.MathUtils.degToRad(r[0]),
+                THREE.MathUtils.degToRad(r[1]),
+                THREE.MathUtils.degToRad(r[2])
+            );
+
+            pivot.add(model);
+            this.scene.add(pivot);
+            this.objects[obj.id] = pivot;
+        }, undefined, err => {
+            console.error('GLTF load error for', obj.url, err);
         });
     }
 
     _buildMesh(obj) {
         let geometry;
         switch (obj.type) {
-            case 'cube':
-                geometry = new THREE.BoxGeometry(1, 1, 1);
-                break;
-            case 'sphere':
-                geometry = new THREE.SphereGeometry(0.5, 32, 16);
-                break;
-            case 'plane':
-                geometry = new THREE.PlaneGeometry(1, 1);
-                break;
-            case 'cylinder':
-                geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 32);
-                break;
-            default:
-                console.warn('Unknown object type:', obj.type);
-                return null;
+            case 'cube':     geometry = new THREE.BoxGeometry(1, 1, 1);          break;
+            case 'sphere':   geometry = new THREE.SphereGeometry(0.5, 32, 16);  break;
+            case 'plane':    geometry = new THREE.PlaneGeometry(1, 1);           break;
+            case 'cylinder': geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 32); break;
+            default: console.warn('Unknown type:', obj.type); return null;
         }
 
-        const material = new THREE.MeshStandardMaterial({
+        const matProps = {
             color:     new THREE.Color(obj.color || '#888888'),
             roughness: 0.55,
             metalness: 0.15,
-        });
+        };
 
-        const mesh = new THREE.Mesh(geometry, material);
+        if (obj.texture) {
+            const tex = new THREE.TextureLoader().load(obj.texture);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            tex.encoding = THREE.sRGBEncoding;
+            matProps.map = tex;
+        }
 
-        // Position
+        const material = new THREE.MeshStandardMaterial(matProps);
+        const mesh     = new THREE.Mesh(geometry, material);
+
         const p = obj.position || [0, 0, 0];
         mesh.position.set(p[0], p[1], p[2]);
 
-        // Rotation (Euler XYZ, radians)
         const r = obj.rotation || [0, 0, 0];
-        mesh.rotation.set(r[0], r[1], r[2]);
-
-        // Flat plane: rotate so it lies on XZ plane
         if (obj.type === 'plane') {
-            mesh.rotation.x = -Math.PI / 2;
+            mesh.rotation.set(-Math.PI / 2, 0, 0);
+        } else {
+            mesh.rotation.set(
+                THREE.MathUtils.degToRad(r[0]),
+                THREE.MathUtils.degToRad(r[1]),
+                THREE.MathUtils.degToRad(r[2])
+            );
         }
 
-        // Scale
         const s = obj.scale || [1, 1, 1];
         mesh.scale.set(s[0], s[1], s[2]);
 
         return mesh;
     }
 
-    // -------------------------------------------------------------------------
-    // Selection highlight
-    // -------------------------------------------------------------------------
+    // ---- Selection ----------------------------------------------------------
 
     selectObject(objectId) {
-        // Clear previous highlight
-        Object.entries(this.objects).forEach(([id, mesh]) => {
-            mesh.material.emissive.setHex(0x000000);
-            mesh.material.emissiveIntensity = 0;
+        Object.values(this.objects).forEach(obj => {
+            obj.traverse(child => {
+                if (!child.isMesh) return;
+                if (child.material.emissive) child.material.emissive.setHex(0x000000);
+                child.material.emissiveIntensity = 0;
+            });
         });
-
         this.selectedId = objectId;
-
         if (objectId && this.objects[objectId]) {
-            const mesh = this.objects[objectId];
-            mesh.material.emissive.setHex(0x4a9eff);
-            mesh.material.emissiveIntensity = 0.25;
+            this.objects[objectId].traverse(child => {
+                if (!child.isMesh) return;
+                if (child.material.emissive) child.material.emissive.setHex(0x4a9eff);
+                child.material.emissiveIntensity = 0.25;
+            });
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Data binding
-    // -------------------------------------------------------------------------
+    // ---- Data binding -------------------------------------------------------
 
     setBinding(objectId, property, value) {
-        const mesh = this.objects[objectId];
-        if (!mesh) return;
-
-        const parts = property.split('.');   // e.g. ['rotation', 'y']
+        const obj = this.objects[objectId];
+        if (!obj) return;
+        const parts = property.split('.');
         if (parts.length !== 2) return;
-
         const [group, axis] = parts;
         if (!['x', 'y', 'z'].includes(axis)) return;
-
         switch (group) {
-            case 'rotation':
-                mesh.rotation[axis] = value;
-                break;
-            case 'position':
-                mesh.position[axis] = value;
-                break;
-            case 'scale':
-                mesh.scale[axis] = Math.max(0.001, value);
-                break;
+            case 'rotation': obj.rotation[axis] = value; break;
+            case 'position': obj.position[axis] = value; break;
+            case 'scale':    obj.scale[axis]    = Math.max(0.001, value); break;
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Resize & render loop
-    // -------------------------------------------------------------------------
+    // ---- Resize & render loop -----------------------------------------------
 
-    resize() {
-        this._updateSize();
-    }
+    resize() { this._updateSize(); }
 
     _updateSize() {
         const w = this.canvas.clientWidth;
         const h = this.canvas.clientHeight;
         if (w === 0 || h === 0) return;
-
         this.renderer.setSize(w, h, false);
-
         if (this.camera) {
             this.camera.aspect = w / h;
             this.camera.updateProjectionMatrix();

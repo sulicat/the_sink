@@ -5,8 +5,8 @@
 // ---------------------------------------------------------------------------
 
 const SCENES = [
-    { id: 'motor_demo',   label: 'Motor Demo',    file: '/scenes/motor_demo.json'   },
-    { id: 'solar_system', label: 'Solar System',  file: '/scenes/solar_system.json' },
+    { id: 'solar_system',  label: 'Solar System',  file: '/scenes/solar_system.json'  },
+    { id: 'country_road',  label: 'Country Road',  file: '/scenes/country_road.json'  },
 ];
 
 const BINDABLE_PROPERTIES = [
@@ -991,6 +991,60 @@ function renderPlotsTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Upload panel
+// ---------------------------------------------------------------------------
+
+function initUploadPanel() {
+    const typeSelect = el('upload-type');
+    const fileInput  = el('upload-file-input');
+    const resultDiv  = el('upload-result');
+
+    const ACCEPT = {
+        model:   '.glb,.gltf',
+        skybox:  '.jpg,.jpeg,.png,.webp,.hdr',
+        texture: '.jpg,.jpeg,.png,.webp',
+    };
+
+    function updateAccept() {
+        fileInput.accept = ACCEPT[typeSelect.value] || '';
+    }
+    typeSelect.addEventListener('change', updateAccept);
+    updateAccept();
+
+    fileInput.addEventListener('change', async () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        resultDiv.textContent = 'Uploading…';
+        resultDiv.style.color = 'var(--text-muted)';
+
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('type', typeSelect.value);
+
+        try {
+            const resp = await fetch('/api/upload.php', { method: 'POST', body: fd });
+            const json = await resp.json();
+            if (json.ok) {
+                resultDiv.textContent = json.url;
+                resultDiv.style.color = 'var(--accent)';
+                resultDiv.onclick = () => {
+                    navigator.clipboard.writeText(json.url).catch(() => {});
+                };
+            } else {
+                resultDiv.textContent = 'Error: ' + json.error;
+                resultDiv.style.color = '#ff6644';
+            }
+        } catch (e) {
+            resultDiv.textContent = 'Upload failed';
+            resultDiv.style.color = '#ff6644';
+        }
+
+        fileInput.value = '';
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
@@ -1002,6 +1056,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     initViewTabs();
     initAllDataPanel();
     initConfigBar();
+    initUploadPanel();
 
     // Set up viewport
     const canvas = el('viewport-canvas');

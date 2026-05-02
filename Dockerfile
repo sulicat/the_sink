@@ -12,11 +12,16 @@ RUN apt-get update && apt-get install -y \
 # Copy nginx config
 COPY nginx/default.conf /etc/nginx/sites-available/default
 
+# PHP upload limits
+COPY php/uploads.ini /etc/php/8.1/fpm/conf.d/99-uploads.ini
+
 # Copy web files
 COPY www/ /var/www/html/
 
-# Create data directory
-RUN mkdir -p /var/data && chmod 777 /var/data
+# Create data directory and upload directories
+RUN mkdir -p /var/data && chmod 777 /var/data && \
+    mkdir -p /var/www/html/models /var/www/html/skyboxes /var/www/html/textures && \
+    chmod 777 /var/www/html/models /var/www/html/skyboxes /var/www/html/textures
 
 # Copy startup script
 COPY start.sh /start.sh

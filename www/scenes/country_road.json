@@ -1,0 +1,141 @@
+{
+  "name": "Country Road",
+  "skybox": "/skyboxes/field-with-purple-clouds.jpg",
+  "objects": [
+    {
+      "id": "grass",
+      "name": "Grass",
+      "type": "plane",
+      "position": [0, 0, 0],
+      "rotation": [0, 0, 0],
+      "scale": [60, 60, 1],
+      "color": "#3d5e38"
+    },
+    {
+      "id": "road",
+      "name": "Road",
+      "type": "plane",
+      "position": [0, 0.005, 0],
+      "rotation": [0, 0, 0],
+      "scale": [5, 60, 1],
+      "color": "#2e2e2e"
+    },
+    {
+      "id": "line_left",
+      "name": "Road Line Left",
+      "type": "plane",
+      "position": [-0.85, 0.01, 0],
+      "rotation": [0, 0, 0],
+      "scale": [0.12, 60, 1],
+      "color": "#f0e060"
+    },
+    {
+      "id": "line_right",
+      "name": "Road Line Right",
+      "type": "plane",
+      "position": [0.85, 0.01, 0],
+      "rotation": [0, 0, 0],
+      "scale": [0.12, 60, 1],
+      "color": "#f0e060"
+    },
+    {
+      "id": "milk_truck",
+      "name": "Milk Truck",
+      "type": "gltf",
+      "url": "/models/CesiumMilkTruck.glb",
+      "position": [-4, 0, 1],
+      "rotation": [0, 14, 0],
+      "scale": [1.5, 1.5, 1.5]
+    },
+    {
+      "id": "toy_car",
+      "name": "Toy Car",
+      "type": "gltf",
+      "url": "/models/ToyCar.glb",
+      "position": [0.3, 0, 5],
+      "rotation": [0, 180, 0],
+      "scale": [50, 50, 50]
+    },
+    {
+      "id": "barrel_a",
+      "name": "Barrel A",
+      "type": "cylinder",
+      "position": [-6.2, 0.6, 2.8],
+      "rotation": [0, 0, 0],
+      "scale": [0.55, 1.2, 0.55],
+      "color": "#7a4a28"
+    },
+    {
+      "id": "barrel_b",
+      "name": "Barrel B",
+      "type": "cylinder",
+      "position": [-7.1, 0.6, 2.0],
+      "rotation": [0, 23, 0],
+      "scale": [0.55, 1.2, 0.55],
+      "color": "#8a5530"
+    },
+    {
+      "id": "crate",
+      "name": "Crate",
+      "type": "cube",
+      "position": [5.5, 0.5, -0.5],
+      "rotation": [0, 17, 0],
+      "scale": [1, 1, 1],
+      "color": "#8b6914"
+    },
+    {
+      "id": "duck",
+      "name": "Duck",
+      "type": "gltf",
+      "url": "/models/Duck.glb",
+      "position": [5.5, 1.05, -0.5],
+      "rotation": [0, -75, 0],
+      "scale": [0.65, 0.65, 0.65]
+    },
+    {
+      "id": "pedestal",
+      "name": "Pedestal",
+      "type": "cylinder",
+      "position": [7.5, 0.5, -3.5],
+      "rotation": [0, 0, 0],
+      "scale": [0.35, 1.0, 0.35],
+      "color": "#555566"
+    },
+    {
+      "id": "helmet",
+      "name": "Damaged Helmet",
+      "type": "gltf",
+      "url": "/models/DamagedHelmet.glb",
+      "position": [7.5, 1.55, -3.5],
+      "rotation": [0, 57, 0],
+      "scale": [0.55, 0.55, 0.55]
+    },
+    {
+      "id": "bollard_a",
+      "name": "Road Bollard A",
+      "type": "cylinder",
+      "position": [2.8, 0.4, -0.5],
+      "rotation": [0, 0, 0],
+      "scale": [0.15, 0.8, 0.15],
+      "color": "#cc4411"
+    },
+    {
+      "id": "bollard_b",
+      "name": "Road Bollard B",
+      "type": "cylinder",
+      "position": [2.8, 0.4, 2.5],
+      "rotation": [0, 0, 0],
+      "scale": [0.15, 0.8, 0.15],
+      "color": "#cc4411"
+    },
+    {
+      "id": "bollard_c",
+      "name": "Road Bollard C",
+      "type": "cylinder",
+      "position": [2.8, 0.4, 5.5],
+      "rotation": [0, 0, 0],
+      "scale": [0.15, 0.8, 0.15],
+      "color": "#cc4411"
+    }
+  ]
+}
