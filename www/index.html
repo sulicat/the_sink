@@ -510,6 +510,61 @@
     .alldata-age.stale  { color: var(--warning); }
 
     /* -----------------------------------------------------------------------
+       Config bar (presets + export/import)
+    ----------------------------------------------------------------------- */
+    #config-bar {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      padding: 7px 8px;
+      background: #1e1e1e;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .cfg-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    #preset-select {
+      flex: 1;
+      min-width: 0;
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 4px 6px;
+      border-radius: 3px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    #preset-select:focus { outline: 1px solid var(--accent); }
+
+    .cfg-btn {
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 4px 8px;
+      border-radius: 3px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .cfg-btn:hover  { color: var(--text); border-color: #555; }
+    .cfg-btn.accent { border-color: var(--accent-dim); color: var(--accent); }
+    .cfg-btn.accent:hover { background: #1e2e42; }
+    .cfg-btn.danger { color: #884444; }
+    .cfg-btn.danger:hover { color: var(--danger); border-color: var(--danger); }
+
+    .cfg-spacer { flex: 1; }
+
+    #import-file-input { display: none; }
+
+    /* -----------------------------------------------------------------------
        Scrollbar styling
     ----------------------------------------------------------------------- */
     ::-webkit-scrollbar              { width: 6px; }
@@ -561,6 +616,28 @@
 
     <!-- Right panel -->
     <div id="right-panel">
+
+      <!-- Config bar -->
+      <div id="config-bar">
+        <!-- Row 1: preset select + actions -->
+        <div class="cfg-row">
+          <select id="preset-select"><option value="">— Presets —</option></select>
+          <button class="cfg-btn"        id="btn-preset-load"   title="Load selected preset">Load</button>
+          <button class="cfg-btn accent" id="btn-preset-save"   title="Save current bindings as preset">Save</button>
+          <button class="cfg-btn danger" id="btn-preset-delete" title="Delete selected preset">✕</button>
+        </div>
+        <!-- Row 2: file ops + clear -->
+        <div class="cfg-row">
+          <button class="cfg-btn" id="btn-export">Export JSON</button>
+          <label  class="cfg-btn" id="btn-import">
+            Import JSON
+            <input type="file" id="import-file-input" accept=".json">
+          </label>
+          <div class="cfg-spacer"></div>
+          <button class="cfg-btn danger" id="btn-clear-scene" title="Remove all bindings for the current scene">Clear All</button>
+        </div>
+      </div>
+
       <div class="tab-strip">
         <button class="tab-btn active" data-tab="bindings">Bindings</button>
         <button class="tab-btn"        data-tab="data">Data</button>

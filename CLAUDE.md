@@ -116,6 +116,31 @@ data.x * Math.cos(data.angle)        // combining multiple labels
 - Status dot per row: grey = empty, green = valid (shows current value), red = error/NaN
 - Label chips at the top of the bindings panel are clickable — they insert `data.labelname` at the cursor position in the focused input
 
+# Binding Configs
+
+A config bar sits above the tab strip in the right panel. Two persistence mechanisms:
+
+**Named presets** (localStorage, key: `sink_presets`):
+- Save: prompts for a name, stores `{ bindings }` snapshot
+- Load: restores a saved preset's bindings immediately
+- Delete: removes a preset after confirmation
+
+**File export/import**:
+- Export: downloads current bindings as `sink-config-YYYY-MM-DD.json`
+- Import: reads a JSON file; accepts `{ version, saved, bindings }` or a bare `{ key: expr }` object
+
+Config file format:
+```json
+{
+  "version": 2,
+  "saved": "2026-05-01T12:00:00.000Z",
+  "bindings": {
+    "motor_demo:motor_shaft:rotation.y": "data.motor_position",
+    "motor_demo:indicator:position.x":   "Math.sin(data.motor_position) * 3"
+  }
+}
+```
+
 # Polling Architecture (main.js)
 
 - `pollLabels()` — every 2s — refreshes available label list; only rebuilds binding dropdowns when the list actually changes

@@ -15,7 +15,8 @@ const BINDABLE_PROPERTIES = [
     'scale.x',    'scale.y',    'scale.z',
 ];
 
-const STORAGE_KEY = 'sink_bindings_v2';  // v2: expressions instead of label names
+const STORAGE_KEY  = 'sink_bindings_v2'; // v2: expressions instead of label names
+const PRESETS_KEY  = 'sink_presets';     // { name: { bindings } }
 const POLL_LABELS_MS = 2000;
 const POLL_DATA_MS   = 500;
 
@@ -627,6 +628,122 @@ function initTabs() {
 }
 
 // ---------------------------------------------------------------------------
+// Config: presets (localStorage) + export/import (JSON files)
+// ---------------------------------------------------------------------------
+
+function loadPresets() {
+    try { return JSON.parse(localStorage.getItem(PRESETS_KEY) || '{}'); }
+    catch (_) { return {}; }
+}
+
+function savePresets(presets) {
+    localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+}
+
+function refreshPresetDropdown() {
+    const sel    = el('preset-select');
+    const active = sel.value;
+    sel.innerHTML = '<option value="">— Presets —</option>';
+    const presets = loadPresets();
+    Object.keys(presets).sort().forEach(name => {
+        const opt       = document.createElement('option');
+        opt.value       = name;
+        opt.textContent = name;
+        sel.appendChild(opt);
+    });
+    if (active) sel.value = active;
+}
+
+function initConfigBar() {
+    refreshPresetDropdown();
+
+    // Save current bindings as a named preset
+    el('btn-preset-save').addEventListener('click', () => {
+        const name = prompt('Preset name:', el('preset-select').value || '');
+        if (!name || !name.trim()) return;
+        const presets = loadPresets();
+        presets[name.trim()] = { bindings: { ...bindings } };
+        savePresets(presets);
+        refreshPresetDropdown();
+        el('preset-select').value = name.trim();
+    });
+
+    // Load selected preset
+    el('btn-preset-load').addEventListener('click', () => {
+        const name    = el('preset-select').value;
+        const presets = loadPresets();
+        if (!name || !presets[name]) return;
+        bindings = { ...presets[name].bindings };
+        saveBindings();
+        renderBindingsPanel();
+        pollAllLatest();
+    });
+
+    // Delete selected preset
+    el('btn-preset-delete').addEventListener('click', () => {
+        const name = el('preset-select').value;
+        if (!name) return;
+        if (!confirm(`Delete preset "${name}"?`)) return;
+        const presets = loadPresets();
+        delete presets[name];
+        savePresets(presets);
+        refreshPresetDropdown();
+    });
+
+    // Export current bindings as a JSON file
+    el('btn-export').addEventListener('click', () => {
+        const payload = JSON.stringify({ version: 2, saved: new Date().toISOString(), bindings }, null, 2);
+        const blob    = new Blob([payload], { type: 'application/json' });
+        const url     = URL.createObjectURL(blob);
+        const a       = document.createElement('a');
+        a.href        = url;
+        a.download    = `sink-config-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    });
+
+    // Clear all bindings for the current scene, reset all properties to 0
+    el('btn-clear-scene').addEventListener('click', () => {
+        if (!currentSceneId) return;
+        const prefix = currentSceneId + ':';
+        Object.keys(bindings).forEach(key => {
+            if (!key.startsWith(prefix)) return;
+            // key = "sceneId:objId:prop"  →  rest = "objId:prop"
+            const rest      = key.slice(prefix.length);
+            const colonIdx  = rest.indexOf(':');
+            const objId     = rest.slice(0, colonIdx);
+            const prop      = rest.slice(colonIdx + 1);
+            viewport.setBinding(objId, prop, 0);
+            delete bindings[key];
+        });
+        saveBindings();
+        renderBindingsPanel();
+    });
+
+    // Import bindings from a JSON file
+    el('import-file-input').addEventListener('change', e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = evt => {
+            try {
+                const data = JSON.parse(evt.target.result);
+                const imported = data.bindings || data; // support bare bindings object too
+                if (typeof imported !== 'object') throw new Error('bad format');
+                bindings = { ...imported };
+                saveBindings();
+                renderBindingsPanel();
+                pollAllLatest();
+            } catch (_) {
+                alert('Could not parse config file.');
+            }
+            e.target.value = ''; // reset so same file can be re-imported
+        };
+        reader.readAsText(file);
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
@@ -635,6 +752,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     initSceneSelector();
     initTabs();
     initAllDataPanel();
+    initConfigBar();
 
     // Set up viewport
     const canvas = el('viewport-canvas');
