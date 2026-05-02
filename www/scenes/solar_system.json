@@ -1,0 +1,41 @@
+{
+  "name": "Solar System",
+  "objects": [
+    {
+      "id": "sun",
+      "name": "Sun",
+      "type": "sphere",
+      "position": [0, 0, 0],
+      "rotation": [0, 0, 0],
+      "scale": [1.5, 1.5, 1.5],
+      "color": "#ffcc22"
+    },
+    {
+      "id": "planet1",
+      "name": "Planet 1",
+      "type": "sphere",
+      "position": [4, 0, 0],
+      "rotation": [0, 0, 0],
+      "scale": [0.4, 0.4, 0.4],
+      "color": "#4488ff"
+    },
+    {
+      "id": "planet2",
+      "name": "Planet 2",
+      "type": "sphere",
+      "position": [-3, 0, 3],
+      "rotation": [0, 0, 0],
+      "scale": [0.6, 0.6, 0.6],
+      "color": "#cc4422"
+    },
+    {
+      "id": "planet3",
+      "name": "Planet 3",
+      "type": "sphere",
+      "position": [1, 0, -5],
+      "rotation": [0, 0, 0],
+      "scale": [0.5, 0.5, 0.5],
+      "color": "#44cc88"
+    }
+  ]
+}

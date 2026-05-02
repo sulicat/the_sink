@@ -1,0 +1,41 @@
+{
+  "name": "Motor Demo",
+  "objects": [
+    {
+      "id": "floor",
+      "name": "Floor",
+      "type": "plane",
+      "position": [0, 0, 0],
+      "rotation": [0, 0, 0],
+      "scale": [8, 8, 1],
+      "color": "#2a2a3a"
+    },
+    {
+      "id": "motor_body",
+      "name": "Motor Body",
+      "type": "cube",
+      "position": [0, 0.5, 0],
+      "rotation": [0, 0, 0],
+      "scale": [1.2, 1.0, 1.2],
+      "color": "#557799"
+    },
+    {
+      "id": "motor_shaft",
+      "name": "Motor Shaft",
+      "type": "cylinder",
+      "position": [0, 1.8, 0],
+      "rotation": [0, 0, 0],
+      "scale": [0.2, 1.5, 0.2],
+      "color": "#aabbcc"
+    },
+    {
+      "id": "indicator",
+      "name": "Indicator",
+      "type": "sphere",
+      "position": [2.5, 0.5, 0],
+      "rotation": [0, 0, 0],
+      "scale": [0.4, 0.4, 0.4],
+      "color": "#ff6644"
+    }
+  ]
+}
