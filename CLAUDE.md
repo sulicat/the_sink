@@ -44,7 +44,8 @@ the_sink/
     ├── index.html            # single-page app, all CSS inline
     ├── js/
     │   ├── viewport.js       # class Viewport — Three.js scene + Blender controls
-    │   └── main.js           # app logic, polling, bindings, UI
+    │   ├── graph.js          # renderGraph() — 2D canvas time-series renderer
+    │   └── main.js           # app logic, polling, bindings, plots, UI
     ├── scenes/
     │   ├── motor_demo.json
     │   └── solar_system.json
@@ -141,12 +142,38 @@ Config file format:
 }
 ```
 
+# 2D Graph
+
+The center panel has two view tabs: **3D Scene** and **Graph**.
+
+The Graph view is a Canvas 2D time-series plot (`graph.js` / `renderGraph()`):
+- 60-second rolling X window, auto-scaling Y axis
+- Redraws every time `pollAllLatest` fires (500ms) while visible
+- `niceTicks()` generates clean round Y axis labels
+- Plot lines are clipped to the graph area; legend shown top-left
+
+**Plot lines** are configured in the **Plots** tab of the right panel:
+- Each plot line has a name, a color (click the dot to cycle through the palette), and a JS expression
+- Same expression system as bindings: `data.label_name`, `Math.*`, arbitrary arithmetic
+- `evalExprWithSnap(expr, snap)` evaluates each expression against a historical snapshot (not just the latest value), so the full 60-second trace is plotted correctly
+- Plot lines stored in `localStorage` under key `sink_plot_lines` as `[{ id, name, expr, color }]`
+- Label chips at the top of the Plots tab insert `data.labelname` at cursor, same as in Bindings
+
+**Time-series buffer** (`timeSeriesBuffer`):
+- Populated by `pollAllLatest` — each call pushes `{ ts, snap: { label: value } }`
+- Trimmed to the last 65 seconds
+- Only held in memory (not persisted); resets on page refresh
+
 # Polling Architecture (main.js)
 
-- `pollLabels()` — every 2s — refreshes available label list; only rebuilds binding dropdowns when the list actually changes
-- `pollAllLatest()` — every 500ms — single call to `latest.php`; updates `latestByLabel` map and drives `applyBindingsToViewport()`
+- `pollLabels()` — every 2s — refreshes available label list; only rebuilds binding/plot panels when the list actually changes
+- `pollAllLatest()` — every 500ms — fetches `latest.php`; updates `latestByLabel`, pushes to `timeSeriesBuffer`, applies viewport bindings, redraws graph if visible
 - `applyBindingsToViewport()` — every 50ms — pushes cached values into Three.js at ~20fps; no I/O
 - `fetchHistory(label)` — on-demand only — called when user opens the Data tab; hits `data.php`
+
+**Expression evaluators** (both use `new Function` with `data` proxy + `Math` only):
+- `evalExpression(expr)` — uses current `latestByLabel` (for live binding status dots)
+- `evalExprWithSnap(expr, snap)` — uses an explicit snapshot object (for graph history)
 
 # Running
 

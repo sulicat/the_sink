@@ -17,6 +17,8 @@ const BINDABLE_PROPERTIES = [
 
 const STORAGE_KEY  = 'sink_bindings_v2'; // v2: expressions instead of label names
 const PRESETS_KEY  = 'sink_presets';     // { name: { bindings } }
+const PLOT_LINES_KEY = 'sink_plot_lines';
+const PLOT_COLORS    = ['#4a9eff','#44cc88','#ffaa22','#ff6644','#cc44ff','#44cccc','#ff44aa','#aacc44'];
 const POLL_LABELS_MS = 2000;
 const POLL_DATA_MS   = 500;
 
@@ -38,6 +40,11 @@ let dataHistory     = {};     // { "labelName": [{value, timestamp}, ...] } — 
 let allLatest       = [];     // [{ label, value, timestamp }, ...]  — for All Data panel
 let statusState     = 'init'; // 'ok' | 'nodata' | 'error'
 let alldataFilter   = '';
+
+let plotLines        = [];   // [{ id, name, expr, color }]
+let timeSeriesBuffer = [];   // [{ ts, snap: {label:value} }]
+let currentView      = 'scene'; // 'scene' | 'graph'
+let _plotIdCounter   = 0;
 
 // ---------------------------------------------------------------------------
 // Expression evaluator
@@ -61,6 +68,16 @@ function evalExpression(expr) {
     } catch (_) {
         return null;
     }
+}
+
+// Evaluate a JS expression against an explicit snapshot object.
+function evalExprWithSnap(expr, snap) {
+    if (!expr || !expr.trim()) return null;
+    try {
+        const data = new Proxy(snap, { get(t, k) { return t[k] ?? 0; } });
+        const result = new Function('data', 'Math', `"use strict"; return +(${expr});`)(data, Math);
+        return Number.isFinite(result) ? result : null;
+    } catch(_) { return null; }
 }
 
 // ---------------------------------------------------------------------------
@@ -486,17 +503,6 @@ function escHtml(s) {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-async function pollAllLatest() {
-    try {
-        const resp = await fetch('/api/latest.php');
-        if (!resp.ok) return;
-        allLatest = await resp.json();
-        if (el('tab-alldata').classList.contains('active')) {
-            renderAllDataTable();
-        }
-    } catch (_) { /* silent */ }
-}
-
 // ---------------------------------------------------------------------------
 // Label polling
 // ---------------------------------------------------------------------------
@@ -512,6 +518,8 @@ async function pollLabels() {
         el('last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
         // Rebuild bindings panel only when label list changes (refreshes chips)
         if (changed && selectedObjId) renderBindingsPanel();
+        // Refresh plots panel chips if active
+        if (changed && el('tab-plots').classList.contains('active')) renderPlotsTab();
     } catch (err) {
         setStatus('error');
     }
@@ -576,6 +584,18 @@ async function pollAllLatest() {
         refreshExprStatus();
 
         if (el('tab-alldata').classList.contains('active')) renderAllDataTable();
+
+        // Record snapshot for graph
+        const snap = {};
+        allLatest.forEach(r => { snap[r.label] = r.value; });
+        const now60 = Date.now() / 1000;
+        timeSeriesBuffer.push({ ts: now60, snap });
+        // Keep only last 65 seconds
+        const cutoff = now60 - 65;
+        timeSeriesBuffer = timeSeriesBuffer.filter(e => e.ts >= cutoff);
+
+        // Redraw graph if visible
+        if (currentView === 'graph') redrawGraph();
     } catch (_) { /* silent */ }
 }
 
@@ -623,6 +643,7 @@ function initTabs() {
 
             if (target === 'data')    { renderDataPanel(); updateDataTableLive(); }
             if (target === 'alldata') renderAllDataTable();
+            if (target === 'plots')   renderPlotsTab();
         });
     });
 }
@@ -744,13 +765,241 @@ function initConfigBar() {
 }
 
 // ---------------------------------------------------------------------------
+// Graph view
+// ---------------------------------------------------------------------------
+
+function redrawGraph() {
+    const canvas = el('graph-canvas');
+    if (!canvas) return;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (w <= 0 || h <= 0) return;  // hidden or not yet laid out — skip
+    if (canvas.width  !== w) canvas.width  = w;
+    if (canvas.height !== h) canvas.height = h;
+    renderGraph(canvas, timeSeriesBuffer, plotLines, evalExprWithSnap);
+}
+
+function initViewTabs() {
+    document.querySelectorAll('.view-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.view-tab').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentView = btn.dataset.view;
+            el('viewport-wrap').style.display = currentView === 'scene' ? '' : 'none';
+            el('graph-wrap').style.display    = currentView === 'graph'  ? 'block' : 'none';
+            if (currentView === 'graph') requestAnimationFrame(redrawGraph);
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Plot lines persistence
+// ---------------------------------------------------------------------------
+
+function loadPlotLines() {
+    try { plotLines = JSON.parse(localStorage.getItem(PLOT_LINES_KEY) || '[]'); }
+    catch(_) { plotLines = []; }
+    _plotIdCounter = plotLines.reduce((m, p) => Math.max(m, p.id || 0), 0);
+}
+
+function savePlotLines() {
+    localStorage.setItem(PLOT_LINES_KEY, JSON.stringify(plotLines));
+}
+
+// ---------------------------------------------------------------------------
+// Plots tab UI
+// ---------------------------------------------------------------------------
+
+let _focusedPlotExprInput = null;
+
+function renderPlotsTab() {
+    const panel = el('plots-panel');
+    if (!panel) return;
+    panel.innerHTML = '';
+
+    // ---- Label chips ----
+    const chipsSection = document.createElement('div');
+    chipsSection.className = 'label-chips-section';
+
+    const chipsTitle = document.createElement('div');
+    chipsTitle.className   = 'label-chips-title';
+    chipsTitle.textContent = 'Available labels';
+    chipsSection.appendChild(chipsTitle);
+
+    const chipsWrap = document.createElement('div');
+    chipsWrap.className = 'label-chips';
+
+    if (availableLabels.length) {
+        availableLabels.forEach(lbl => {
+            const chip = document.createElement('span');
+            chip.className   = 'label-chip';
+            chip.textContent = lbl;
+            chip.title       = `Insert: data.${lbl}`;
+            chip.addEventListener('mousedown', e => {
+                e.preventDefault();
+                if (!_focusedPlotExprInput) return;
+                const inp   = _focusedPlotExprInput;
+                const start = inp.selectionStart;
+                const end   = inp.selectionEnd;
+                const ins   = `data.${lbl}`;
+                inp.value   = inp.value.slice(0, start) + ins + inp.value.slice(end);
+                inp.selectionStart = inp.selectionEnd = start + ins.length;
+                inp.dispatchEvent(new Event('input'));
+                inp.focus();
+            });
+            chipsWrap.appendChild(chip);
+        });
+    } else {
+        const hint = document.createElement('span');
+        hint.className   = 'no-labels-hint';
+        hint.textContent = 'No data yet';
+        chipsWrap.appendChild(hint);
+    }
+
+    chipsSection.appendChild(chipsWrap);
+    panel.appendChild(chipsSection);
+
+    // ---- Add Plot Line button ----
+    const addBtn = document.createElement('button');
+    addBtn.className   = 'cfg-btn accent';
+    addBtn.textContent = '+ Add Plot Line';
+    addBtn.style.cssText = 'width:100%;margin:8px 0 4px;display:block;';
+    addBtn.addEventListener('click', () => {
+        _plotIdCounter++;
+        const colorIdx = plotLines.length % PLOT_COLORS.length;
+        plotLines.push({
+            id:    _plotIdCounter,
+            name:  'Plot ' + _plotIdCounter,
+            expr:  '',
+            color: PLOT_COLORS[colorIdx],
+        });
+        savePlotLines();
+        renderPlotsTab();
+        redrawGraph();
+    });
+    panel.appendChild(addBtn);
+
+    // ---- Plot line cards ----
+    plotLines.forEach((pl, idx) => {
+        const card = document.createElement('div');
+        card.className = 'plot-line-card';
+
+        // Header row: color dot + name + delete
+        const header = document.createElement('div');
+        header.className = 'plot-line-header';
+
+        const colorDot = document.createElement('div');
+        colorDot.className = 'plot-color-dot';
+        colorDot.style.background = pl.color;
+        colorDot.title = 'Click to change color';
+        colorDot.addEventListener('click', () => {
+            const ci = PLOT_COLORS.indexOf(pl.color);
+            pl.color = PLOT_COLORS[(ci + 1) % PLOT_COLORS.length];
+            colorDot.style.background = pl.color;
+            savePlotLines();
+            redrawGraph();
+        });
+
+        const nameInput = document.createElement('input');
+        nameInput.type        = 'text';
+        nameInput.className   = 'plot-name-input';
+        nameInput.value       = pl.name;
+        nameInput.placeholder = 'Plot name…';
+        nameInput.spellcheck  = false;
+        nameInput.addEventListener('input', () => { pl.name = nameInput.value; });
+        nameInput.addEventListener('blur',  () => { pl.name = nameInput.value.trim() || pl.name; savePlotLines(); });
+        nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') nameInput.blur(); });
+
+        const delBtn = document.createElement('button');
+        delBtn.className   = 'plot-delete-btn';
+        delBtn.textContent = '✕';
+        delBtn.title       = 'Delete this plot line';
+        delBtn.addEventListener('click', () => {
+            plotLines.splice(idx, 1);
+            savePlotLines();
+            renderPlotsTab();
+            redrawGraph();
+        });
+
+        header.appendChild(colorDot);
+        header.appendChild(nameInput);
+        header.appendChild(delBtn);
+        card.appendChild(header);
+
+        // Expr row
+        const exprRow = document.createElement('div');
+        exprRow.className = 'plot-expr-row';
+
+        const exprInput = document.createElement('input');
+        exprInput.type        = 'text';
+        exprInput.className   = 'expr-input';
+        exprInput.value       = pl.expr;
+        exprInput.placeholder = 'expression…';
+        exprInput.spellcheck  = false;
+
+        const dot = document.createElement('span');
+        dot.className = 'binding-dot';
+
+        // Focus tracking for chip insertion
+        exprInput.addEventListener('focus', () => { _focusedPlotExprInput = exprInput; });
+        exprInput.addEventListener('blur',  () => {
+            if (_focusedPlotExprInput === exprInput) _focusedPlotExprInput = null;
+        });
+
+        // Status dot helper
+        function updateExprStatus() {
+            const expr = exprInput.value.trim();
+            const snap = {};
+            allLatest.forEach(r => { snap[r.label] = r.value; });
+            if (!expr) {
+                exprInput.className = 'expr-input';
+                dot.style.background = 'var(--text-muted)';
+                dot.title = '';
+            } else {
+                const v = evalExprWithSnap(expr, snap);
+                if (v !== null) {
+                    exprInput.className = 'expr-input expr-ok';
+                    dot.style.background = 'var(--success)';
+                    dot.title = '= ' + v;
+                } else {
+                    exprInput.className = 'expr-input expr-err';
+                    dot.style.background = 'var(--danger)';
+                    dot.title = 'error';
+                }
+            }
+        }
+
+        exprInput.addEventListener('input', updateExprStatus);
+
+        const commitExpr = () => {
+            pl.expr = exprInput.value.trim();
+            savePlotLines();
+            redrawGraph();
+        };
+        exprInput.addEventListener('blur',    commitExpr);
+        exprInput.addEventListener('keydown', e => { if (e.key === 'Enter') { commitExpr(); exprInput.blur(); } });
+
+        // Initial dot state
+        updateExprStatus();
+
+        exprRow.appendChild(exprInput);
+        exprRow.appendChild(dot);
+        card.appendChild(exprRow);
+
+        panel.appendChild(card);
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
 window.addEventListener('DOMContentLoaded', async () => {
     loadBindings();
+    loadPlotLines();
     initSceneSelector();
     initTabs();
+    initViewTabs();
     initAllDataPanel();
     initConfigBar();
 
