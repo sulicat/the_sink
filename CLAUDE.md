@@ -95,6 +95,27 @@ GET /api/ingest.php?label=motor_position&value=1.57
 
 Bindable properties per object: `rotation.x/y/z`, `position.x/y/z`, `scale.x/y/z`
 
+# Expression Bindings
+
+Each object property is driven by a JS expression string (not a simple label dropdown). The expression is evaluated via `new Function` with two variables in scope:
+
+- `data` — a Proxy; `data.label_name` returns the latest value of that label (0 if unknown)
+- `Math` — the standard JS Math object
+
+Examples:
+```js
+data.motor_position                   // direct value
+data.motor_position * 2               // scaled
+Math.sin(data.motor_position)         // trig
+(data.speed - 30) / 100              // offset + scale
+data.x * Math.cos(data.angle)        // combining multiple labels
+```
+
+- Bindings are stored in `localStorage` under key `sink_bindings_v2` as `{ "sceneId:objId:prop": "expression string" }`
+- Clearing the expression (empty input) resets the property to 0
+- Status dot per row: grey = empty, green = valid (shows current value), red = error/NaN
+- Label chips at the top of the bindings panel are clickable — they insert `data.labelname` at the cursor position in the focused input
+
 # Polling Architecture (main.js)
 
 - `pollLabels()` — every 2s — refreshes available label list; only rebuilds binding dropdowns when the list actually changes

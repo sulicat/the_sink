@@ -15,21 +15,52 @@ const BINDABLE_PROPERTIES = [
     'scale.x',    'scale.y',    'scale.z',
 ];
 
-const STORAGE_KEY = 'sink_bindings';
+const STORAGE_KEY = 'sink_bindings_v2';  // v2: expressions instead of label names
 const POLL_LABELS_MS = 2000;
 const POLL_DATA_MS   = 500;
+
+// Abbreviated property names for compact display
+const PROP_ABBREV = {
+    'rotation.x':'rot.x', 'rotation.y':'rot.y', 'rotation.z':'rot.z',
+    'position.x':'pos.x', 'position.y':'pos.y', 'position.z':'pos.z',
+    'scale.x':   'scl.x', 'scale.y':   'scl.y', 'scale.z':   'scl.z',
+};
 
 let viewport        = null;
 let currentScene    = null;   // scene JSON
 let currentSceneId  = null;
 let selectedObjId   = null;
-let availableLabels = [];
-let bindings        = {};     // { "sceneId:objId:prop": "labelName" }
+let availableLabels = [];     // label names active in last 10 min (for chips + status)
+let bindings        = {};     // { "sceneId:objId:prop": "js expression string" }
 let latestByLabel   = {};     // { "labelName": { value, timestamp } }  — for scene updates
 let dataHistory     = {};     // { "labelName": [{value, timestamp}, ...] } — for data panel only
 let allLatest       = [];     // [{ label, value, timestamp }, ...]  — for All Data panel
 let statusState     = 'init'; // 'ok' | 'nodata' | 'error'
 let alldataFilter   = '';
+
+// ---------------------------------------------------------------------------
+// Expression evaluator
+// ---------------------------------------------------------------------------
+
+// Proxy so data.any_label returns its latest value (0 if unknown)
+function makeDataProxy() {
+    return new Proxy({}, {
+        get(_, label) { return latestByLabel[label]?.value ?? 0; },
+    });
+}
+
+// Evaluate a JS expression string. Returns a finite number or null on error.
+function evalExpression(expr) {
+    if (!expr || !expr.trim()) return null;
+    try {
+        // Expose: data (proxy), Math, and nothing else from global scope
+        const fn = new Function('data', 'Math', `"use strict"; return +(${expr});`);
+        const result = fn(makeDataProxy(), Math);
+        return Number.isFinite(result) ? result : null;
+    } catch (_) {
+        return null;
+    }
+}
 
 // ---------------------------------------------------------------------------
 // DOM helpers
@@ -161,6 +192,9 @@ function selectObject(objId) {
 // Bindings panel
 // ---------------------------------------------------------------------------
 
+// Track which input was last focused so chips can insert into it
+let _focusedExprInput = null;
+
 function renderBindingsPanel() {
     const panel = el('bindings-panel');
     panel.innerHTML = '';
@@ -173,44 +207,107 @@ function renderBindingsPanel() {
     const obj = (currentScene?.objects || []).find(o => o.id === selectedObjId);
     if (!obj) return;
 
+    // ---- Object heading ----
     const heading = document.createElement('div');
     heading.className   = 'panel-section-title';
     heading.textContent = obj.name;
+    heading.style.padding = '8px 10px 4px';
     panel.appendChild(heading);
 
-    BINDABLE_PROPERTIES.forEach(prop => {
-        const key         = bindingKey(currentSceneId, selectedObjId, prop);
-        const boundLabel  = bindings[key] || '';
+    // ---- Label chips ----
+    const chipsSection = document.createElement('div');
+    chipsSection.className = 'label-chips-section';
 
-        const row    = document.createElement('div');
+    const chipsTitle = document.createElement('div');
+    chipsTitle.className   = 'label-chips-title';
+    chipsTitle.textContent = 'Available labels';
+    chipsSection.appendChild(chipsTitle);
+
+    const chipsWrap = document.createElement('div');
+    chipsWrap.className = 'label-chips';
+
+    if (availableLabels.length) {
+        availableLabels.forEach(lbl => {
+            const chip = document.createElement('span');
+            chip.className   = 'label-chip';
+            chip.textContent = lbl;
+            chip.title       = `Insert: data.${lbl}`;
+            chip.addEventListener('mousedown', e => {
+                e.preventDefault(); // don't steal focus from the input
+                if (!_focusedExprInput) return;
+                const inp   = _focusedExprInput;
+                const start = inp.selectionStart;
+                const end   = inp.selectionEnd;
+                const ins   = `data.${lbl}`;
+                inp.value   = inp.value.slice(0, start) + ins + inp.value.slice(end);
+                inp.selectionStart = inp.selectionEnd = start + ins.length;
+                inp.dispatchEvent(new Event('input'));
+                inp.focus();
+            });
+            chipsWrap.appendChild(chip);
+        });
+    } else {
+        const hint = document.createElement('span');
+        hint.className   = 'no-labels-hint';
+        hint.textContent = 'No data yet';
+        chipsWrap.appendChild(hint);
+    }
+
+    chipsSection.appendChild(chipsWrap);
+    panel.appendChild(chipsSection);
+
+    // ---- Expression rows ----
+    BINDABLE_PROPERTIES.forEach(prop => {
+        const key  = bindingKey(currentSceneId, selectedObjId, prop);
+        const expr = bindings[key] || '';
+
+        const row = document.createElement('div');
         row.className = 'binding-row';
 
         const propEl = document.createElement('span');
         propEl.className   = 'prop-name';
-        propEl.textContent = prop;
+        propEl.textContent = PROP_ABBREV[prop] || prop;
+        propEl.title       = prop;
 
-        const sel    = document.createElement('select');
-        sel.className = 'label-select';
+        const input = document.createElement('input');
+        input.type        = 'text';
+        input.className   = 'expr-input';
+        input.value       = expr;
+        input.placeholder = 'expression…';
+        input.spellcheck  = false;
 
-        // None option
-        const noneOpt     = document.createElement('option');
-        noneOpt.value     = '';
-        noneOpt.textContent = '— None —';
-        sel.appendChild(noneOpt);
+        const dot = document.createElement('span');
+        dot.className = 'binding-dot';
 
-        availableLabels.forEach(lbl => {
-            const opt     = document.createElement('option');
-            opt.value     = lbl;
-            opt.textContent = lbl;
-            if (lbl === boundLabel) opt.selected = true;
-            sel.appendChild(opt);
+        // Focus tracking for chip insertion
+        input.addEventListener('focus', () => { _focusedExprInput = input; });
+        input.addEventListener('blur',  () => {
+            if (_focusedExprInput === input) _focusedExprInput = null;
         });
 
-        sel.value = boundLabel;
+        // Live status update while typing
+        input.addEventListener('input', () => {
+            const v = evalExpression(input.value.trim());
+            if (!input.value.trim()) {
+                input.className = 'expr-input';
+                dot.style.background = 'var(--text-muted)';
+                dot.title = '';
+            } else if (v !== null) {
+                input.className = 'expr-input expr-ok';
+                dot.style.background = 'var(--success)';
+                dot.title = '= ' + v;
+            } else {
+                input.className = 'expr-input expr-err';
+                dot.style.background = 'var(--danger)';
+                dot.title = 'error';
+            }
+        });
 
-        sel.addEventListener('change', () => {
-            if (sel.value) {
-                bindings[key] = sel.value;
+        // Commit on blur or Enter
+        const commit = () => {
+            const trimmed = input.value.trim();
+            if (trimmed) {
+                bindings[key] = trimmed;
             } else {
                 delete bindings[key];
                 viewport.setBinding(selectedObjId, prop, 0);
@@ -218,10 +315,25 @@ function renderBindingsPanel() {
             saveBindings();
             renderDataPanel();
             pollAllLatest();
-        });
+        };
+        input.addEventListener('blur',   commit);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { commit(); input.blur(); } });
+
+        // Set initial dot state
+        if (expr) {
+            const v = evalExpression(expr);
+            if (v !== null) {
+                input.className = 'expr-input expr-ok';
+                dot.style.background = 'var(--success)';
+            } else {
+                input.className = 'expr-input expr-err';
+                dot.style.background = 'var(--danger)';
+            }
+        }
 
         row.appendChild(propEl);
-        row.appendChild(sel);
+        row.appendChild(input);
+        row.appendChild(dot);
         panel.appendChild(row);
     });
 }
@@ -397,7 +509,7 @@ async function pollLabels() {
         availableLabels = labels;
         setStatus(labels.length ? 'ok' : 'nodata');
         el('last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
-        // Only rebuild dropdowns when the label list actually changes
+        // Rebuild bindings panel only when label list changes (refreshes chips)
         if (changed && selectedObjId) renderBindingsPanel();
     } catch (err) {
         setStatus('error');
@@ -408,18 +520,43 @@ async function pollLabels() {
 // Data polling
 // ---------------------------------------------------------------------------
 
-// Push the latest cached values into the 3D scene. No I/O — runs at ~20 fps.
+// Push evaluated expression values into the 3D scene. No I/O — runs at ~20 fps.
 function applyBindingsToViewport() {
     if (!currentSceneId || !currentScene) return;
     (currentScene.objects || []).forEach(obj => {
         BINDABLE_PROPERTIES.forEach(prop => {
-            const key   = bindingKey(currentSceneId, obj.id, prop);
-            const label = bindings[key];
-            if (!label) return;
-            const entry = latestByLabel[label];
-            if (entry === undefined) return;
-            viewport.setBinding(obj.id, prop, entry.value);
+            const key  = bindingKey(currentSceneId, obj.id, prop);
+            const expr = bindings[key];
+            if (!expr) return;
+            const val  = evalExpression(expr);
+            if (val === null) return;
+            viewport.setBinding(obj.id, prop, val);
         });
+    });
+}
+
+// Refresh the status dot colour/title for all visible expression inputs.
+function refreshExprStatus() {
+    document.querySelectorAll('.expr-input').forEach(input => {
+        const dot  = input.nextElementSibling;
+        const expr = input.value.trim();
+        if (!dot) return;
+        if (!expr) {
+            input.className = 'expr-input';
+            dot.style.background = 'var(--text-muted)';
+            dot.title = '';
+            return;
+        }
+        const val = evalExpression(expr);
+        if (val !== null) {
+            input.className = 'expr-input expr-ok';
+            dot.style.background = 'var(--success)';
+            dot.title = '= ' + val.toPrecision(5).replace(/\.?0+$/, '');
+        } else {
+            input.className = 'expr-input expr-err';
+            dot.style.background = 'var(--danger)';
+            dot.title = 'error';
+        }
     });
 }
 
@@ -435,6 +572,7 @@ async function pollAllLatest() {
         allLatest.forEach(r => { latestByLabel[r.label] = r; });
 
         applyBindingsToViewport();
+        refreshExprStatus();
 
         if (el('tab-alldata').classList.contains('active')) renderAllDataTable();
     } catch (_) { /* silent */ }
